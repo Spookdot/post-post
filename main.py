@@ -1,4 +1,5 @@
 from tortoise.contrib.fastapi import RegisterTortoise, tortoise_exception_handlers
+from dotenv import load_dotenv
 from tortoise.config import DBUrlConfig, AppConfig
 from tortoise import TortoiseConfig
 from collections.abc import AsyncGenerator
@@ -8,15 +9,18 @@ from fastapi import FastAPI, Depends, HTTPException, status, Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pwdlib import PasswordHash
 from uuid import UUID, uuid4
+import os
 import secrets
 
 from models.tortoise import Post as TPost, User as TUser, Token as TToken
 from models.pydantic import Post, User
 
+load_dotenv()
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     tortoise_config = TortoiseConfig(
-        connections={"default": DBUrlConfig("sqlite://:memory:")},
+        connections={"default": DBUrlConfig(os.environ["DB_URL"])},
         apps={
             "models": AppConfig(
                 models=["models.tortoise"],
@@ -27,8 +31,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     async with RegisterTortoise(app, config=tortoise_config, generate_schemas=True):
         # db connected
-        test_user = await TUser.create(username="springjordan", password_hash="$argon2id$v=19$m=65536,t=3,p=4$A7mxd1AfqpkZLdue4VOHWg$mclJnQ3BIZkEvADQTfwdpQSSSuS9hoGa7Ik+groHkPY")
-        await test_user.save()
+        if os.environ.get("TEST_USER_USERNAME") and os.environ.get("TEST_USER_PASSWORD_HASH"):
+            test_user = await TUser.create(
+                username=os.environ["TEST_USER_USERNAME"], 
+                password_hash=os.environ["TEST_USER_PASSWORD_HASH"]
+            )
+            await test_user.save()
         yield
         # app teardown
     # db connections closed
