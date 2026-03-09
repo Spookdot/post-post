@@ -12,8 +12,8 @@ from uuid import UUID, uuid4
 import os
 import secrets
 
-from models.tortoise import Post as TPost, User as TUser, Token as TToken
-from models.pydantic import Post, User
+from models.tortoise import Post, User, Token
+from models.pydantic import Post_Pydantic, User_Pydantic, Token_Pydantic
 
 load_dotenv()
 
@@ -32,7 +32,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     async with RegisterTortoise(app, config=tortoise_config, generate_schemas=True):
         # db connected
         if os.environ.get("TEST_USER_USERNAME") and os.environ.get("TEST_USER_PASSWORD_HASH"):
-            test_user = await TUser.create(
+            test_user = await User.create(
                 username=os.environ["TEST_USER_USERNAME"], 
                 password_hash=os.environ["TEST_USER_PASSWORD_HASH"]
             )
@@ -52,44 +52,46 @@ password_hash = PasswordHash.recommended()
 
 async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
     # TODO actually fetch user and verify token
-    ttoken = await TToken.get(token=token)
+    ttoken = await Token.get(token=token)
     username = ttoken.username
     if not username:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated", headers={"WWW-Authenticate": "Bearer"})
-    return User(username=username)
+    return User_Pydantic(username=username)
 
 
-@app.post("/token")
+@app.post("/token", response_model=Token_Pydantic)
 async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], response: Response):
     # TODO Replace with actual Database use and password verification and return token
-    tuser = await TUser.get_or_none(username=form_data.username)
-    if not tuser:
+    user = await User.get_or_none(username=form_data.username)
+    if not user:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Incorrect username or password")
 
-    if not password_hash.verify(form_data.password, tuser.password_hash):
+    if not password_hash.verify(form_data.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Incorrect username or password")
 
     # Generate token
     token = secrets.token_hex(32)
     # TODO hash token with SHA256
-    ttoken = await TToken.create(username=tuser.username, token=token)
+    ttoken = await Token.create(username=user.username, token=token)
     await ttoken.save()
 
     return {"access_token": token, "token_type": "bearer"}
 
 
 # Post management
-@app.get("/post/{id}")
-async def get_post(id: UUID) -> Post | None:
-    item = await TPost.get_or_none(id=id)
-    return Post.model_validate(item)
+@app.get("/post/{id}", response_model=Post_Pydantic, responses={404: {"model": str}})
+async def get_post(id: UUID):
+    item = await Post.get_or_none(id=id)
+    if not item:
+        return (status.HTTP_404_NOT_FOUND, "No post under this ID")
+    return await Post_Pydantic.from_tortoise_orm(item)
 
 
 @app.post("/post")
-async def create_post(post: Post, token: Annotated[User, Depends(get_current_user)]) -> UUID:
+async def create_post(post: Post_Pydantic, token: Annotated[User, Depends(get_current_user)]) -> UUID:
     # TODO Use actual User data
     id = uuid4()
-    tpost = await TPost.create(id=id, **post.model_dump())
+    tpost = await Post.create(id=id, **post.model_dump())
     await tpost.save()
     return id
 
