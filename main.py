@@ -16,6 +16,8 @@ from models.tortoise import Post, User, Token
 from models.pydantic import Post_Pydantic, User_Pydantic, Token_Pydantic
 
 load_dotenv()
+oauth2_scheme  = OAuth2PasswordBearer(tokenUrl="token")
+password_hash = PasswordHash.recommended()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -31,10 +33,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     async with RegisterTortoise(app, config=tortoise_config, generate_schemas=True):
         # db connected
-        if os.environ.get("TEST_USER_USERNAME") and os.environ.get("TEST_USER_PASSWORD_HASH"):
+        if os.environ.get("TEST_USER_USERNAME") and os.environ.get("TEST_USER_PASSWORD"):
             test_user = await User.create(
                 username=os.environ["TEST_USER_USERNAME"], 
-                password_hash=os.environ["TEST_USER_PASSWORD_HASH"]
+                password_hash=password_hash.hash(os.environ["TEST_USER_PASSWORD"])
             )
             await test_user.save()
         yield
@@ -46,8 +48,6 @@ app = FastAPI(
     lifespan=lifespan,
     exception_handlers=tortoise_exception_handlers(),
 )
-oauth2_scheme  = OAuth2PasswordBearer(tokenUrl="token")
-password_hash = PasswordHash.recommended()
 
 
 async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
