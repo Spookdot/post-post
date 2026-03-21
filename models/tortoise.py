@@ -1,9 +1,15 @@
 from tortoise import Model, fields
 
+class Tag(Model):
+    name = fields.CharField(max_length=256, primary_key=True)
+    posts: fields.ManyToManyRelation["Post"]
+
 class Post(Model):
     id = fields.UUIDField(primary_key=True)
     title = fields.CharField(max_length=64)
     content = fields.TextField()
+
+    tags: fields.ManyToManyRelation[Tag] = fields.ManyToManyField(Tag, related_name="posts")
 
     class PydanticMeta:
         exclude = ["id"]
