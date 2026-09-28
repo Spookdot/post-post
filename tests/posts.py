@@ -1,4 +1,5 @@
-from dotenv import load_dotenv
+from pydantic import ValidationError
+from app.models.pydantic import get_settings, Token_Pydantic, Settings
 from uuid import uuid4
 from tortoise.context import tortoise_test_context
 from fastapi import status
@@ -6,17 +7,17 @@ from fastapi.testclient import TestClient
 import pytest_asyncio
 import pytest
 import os
-from models.tortoise import Post
-from main import app
+from app.models.tortoise import Post
+from app.main import app
 
-load_dotenv()
-TEST_USER_USERNAME = os.environ["TEST_USER_USERNAME"]
-TEST_USER_PASSWORD = os.environ["TEST_USER_PASSWORD"]
+@pytest_asyncio.fixture
+def settings():
+    return get_settings()
 
 @pytest_asyncio.fixture
 async def db():
     db_url = os.getenv("TORTOISE_TEST_DB", "sqlite://:memory:")
-    async with tortoise_test_context(["models.tortoise"], db_url=db_url) as ctx:
+    async with tortoise_test_context(["app.models.tortoise"], db_url=db_url) as ctx:
         yield ctx
 
 @pytest_asyncio.fixture
@@ -26,24 +27,34 @@ def client():
 
 @pytest.mark.asyncio
 async def test_create_post(db):
+    _ = db
     id = uuid4()
     title = "hello"
     content = "world"
 
-    post = await Post.create(id=id, title=title, content=content)
-    await post.save()
+    await Post.create(id=id, title=title, content=content)
 
     post_in_db = await Post.get(id=id)
     assert post_in_db.title == title
     assert post_in_db.content == content
 
 @pytest.mark.asyncio
-async def test_login(db, client: TestClient):
-    response = client.post("/token", data={"username": TEST_USER_USERNAME, "password": TEST_USER_PASSWORD})
-    assert len(response.json()["access_token"]) == 64
+async def test_login(db, client: TestClient, settings: Settings):
+    form_data = {
+        "username": settings.test_user_username,
+        "password": settings.test_user_password
+    }
+    response = client.post("/token", data=form_data)
+    assert response.status_code == 200, response.text
+
+    response_dict = response.json()
+
+    token_data = Token_Pydantic(**response_dict)
+    assert token_data.token_type == "bearer"
+    assert len(token_data.access_token) == 64
 
 @pytest.mark.asyncio
-async def test_authorization(db, client: TestClient):
+async def test_authorization(db, client: TestClient, settings: Settings):
     title = "hello"
     content = "world"
     post_json = {"title": title, "content": content}
@@ -53,7 +64,11 @@ async def test_authorization(db, client: TestClient):
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     # Test login endpoint
-    response = client.post("/token", data={"username": TEST_USER_USERNAME, "password": TEST_USER_PASSWORD})
+    form_data = {
+        "username": settings.test_user_username,
+        "password": settings.test_user_password
+    }
+    response = client.post("/token", data=form_data)
     assert response.status_code == status.HTTP_200_OK
     response_json = response.json()
     token = response_json["access_token"]
@@ -61,7 +76,7 @@ async def test_authorization(db, client: TestClient):
 
     # Test that I can now make posts
     response = client.post("/post", json=post_json, headers={"Authorization": f"Bearer {token}"})
-    assert response.status_code == status.HTTP_200_OK
+    assert response.status_code == status.HTTP_200_OK, response.text
     post_id = response.json()
 
     # check if the post was created and I can access it without Authorization
@@ -70,7 +85,7 @@ async def test_authorization(db, client: TestClient):
     assert response.status_code == status.HTTP_200_OK, response.text
     
 @pytest.mark.asyncio
-async def test_tags(db, client: TestClient):
+async def test_tags(db, client: TestClient, settings: Settings):
     title = "welcome to my blog"
     content = "This is my blog"
     tags = ["introduction", "personal"]
@@ -81,7 +96,11 @@ async def test_tags(db, client: TestClient):
     }
 
     # Log in
-    response = client.post("/token", data={"username": TEST_USER_USERNAME, "password": TEST_USER_PASSWORD})
+    form_data = {
+        "username": settings.test_user_username,
+        "password": settings.test_user_password
+    }
+    response = client.post("/token", data=form_data)
     response_json = response.json()
     token = response_json["access_token"]
 
