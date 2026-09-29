@@ -6,14 +6,11 @@ from contextlib import asynccontextmanager
 from typing import Annotated
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from pwdlib import PasswordHash
 from uuid import UUID, uuid4
 
 from .models.tortoise import Post, User
 from .models.pydantic import Post_Pydantic, Token_Pydantic, get_settings
-from .auth import get_current_user, authenticate_user, generate_token, save_token_for_user
-
-password_hash = PasswordHash.recommended()
+from .auth import get_current_user, authenticate_user, generate_token, save_token_for_user, hash_password
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -34,7 +31,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         username = settings.test_user_username
         password = settings.test_user_password
         if username and password:
-            hashed_password = password_hash.hash(password)
+            hashed_password = hash_password(password)
 
             await User.create(username=username, password_hash=hashed_password)
         yield

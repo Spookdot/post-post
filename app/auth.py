@@ -1,4 +1,3 @@
-import os
 from pwdlib import PasswordHash
 import secrets
 from typing import Annotated
@@ -34,6 +33,10 @@ async def get_user_from_token(token: str) -> User | None:
         if not token_data.username:
             return None
         return await get_user(token_data.username)
+
+
+def hash_password(plain_password: str) -> str:
+    return password_hash.hash(plain_password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
