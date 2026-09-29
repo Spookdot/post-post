@@ -1,6 +1,4 @@
 from tortoise.contrib.fastapi import RegisterTortoise, tortoise_exception_handlers
-from tortoise.config import DBUrlConfig, AppConfig
-from tortoise import TortoiseConfig
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Annotated
@@ -16,17 +14,12 @@ from .auth import get_current_user, authenticate_user, generate_token, save_toke
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     settings = get_settings()
 
-    tortoise_config = TortoiseConfig(
-        connections={"default": DBUrlConfig(settings.db_url)},
-        apps={
-            "models": AppConfig(
-                models=["app.models.tortoise"],
-                default_connection="default",
-                migrations="migrations"
-            )
-        }
-    )
-    async with RegisterTortoise(app, config=tortoise_config, generate_schemas=True):
+    async with RegisterTortoise(
+        app,
+        db_url=settings.db_url,
+        modules={ "models": ["app.models.tortoise"] },
+        generate_schemas=True
+    ):
         # db connected
         username = settings.test_user_username
         password = settings.test_user_password
