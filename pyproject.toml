@@ -19,3 +19,9 @@ dev = [
 
 [tool.fastapi]
 entrypoint = "app.main:app"
+
+[pytest]
+minversion = "9.0"
+testpaths = [
+    "tests/posts.py"
+]
