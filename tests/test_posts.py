@@ -9,7 +9,7 @@ import os
 from app.main import app
 from app.auth import hash_password
 from app.dependencies import get_session, get_settings, Settings
-from app.models.sqlmodel import Post, TokenResponse, User
+from app.models.sqlmodel import Post, TokenResponse, User, Tag
 
 @pytest.fixture(name="settings")
 def settings_fixture():
@@ -108,8 +108,7 @@ async def test_authorization(client: TestClient, settings: Settings):
     assert response.status_code != status.HTTP_401_UNAUTHORIZED
     assert response.status_code == status.HTTP_200_OK, response.text
     
-@pytest.mark.asyncio
-async def test_tags(client: TestClient, settings: Settings):
+def test_tags(session: Session, client: TestClient, settings: Settings):
     title = "welcome to my blog"
     content = "This is my blog"
     tags = ["introduction", "personal"]
@@ -132,11 +131,16 @@ async def test_tags(client: TestClient, settings: Settings):
     response = client.post("/post", json=post_json, headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200, "Unable to create post with tags"
     post_id = response.json()
+    
+    # Check the post was actually created
+    statement = select(Tag).where(Tag.name == tags[0])
+    results = session.exec(statement)
+    _ = results.one()
 
     # Search for the post via tags
     response = client.get(f"/tag/{tags[0]}")
     assert response.status_code == 200, "Unable to search for posts using tags"
     posts = response.json()
-
+    
     # Verify that any of the posts that were returned is actually the one we made
-    assert any([i.id == post_id for i in posts])
+    assert any([i["id"] == post_id for i in posts]), posts

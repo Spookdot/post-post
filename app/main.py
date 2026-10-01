@@ -76,17 +76,32 @@ def create_post(
     _: Annotated[User, Depends(get_current_user)]
 ) -> UUID:
     # TODO Use actual User data
-    post_dict = post_create.model_dump()
-    tags = []
-    for tag in post_dict["tags"]:
+    post = Post.from_create(post_create)
+
+    for tag in post_create.tags:
         tag_in_db = Tag(name=tag)
-        tags.append(tag_in_db)
+        post.tags.append(tag_in_db)
 
-    post_dict["tags"] = tags
-
-    post = Post.model_validate(post_dict)
     session.add(post)
     session.commit()
     session.refresh(post)
     return post.id
+
+
+@app.get("/tag/{tag}", response_model=list[PostPublic])
+def get_posts_by_tag(
+        tag: str, 
+        session: Annotated[Session, Depends(get_session)],
+):
+    statement = select(Tag).where(Tag.name == tag)
+    results = session.exec(statement)
+    tag_in_db = results.one_or_none()
+    if not tag_in_db:
+        return []
+
+    posts = []
+    for post in tag_in_db.posts:
+        posts.append(post.into_public())
+
+    return posts
 
