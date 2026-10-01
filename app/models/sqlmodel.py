@@ -72,7 +72,6 @@ class Post(PostBase, table=True):
 
     @classmethod
     def from_create(cls, create: PostCreate) -> Self:
-        # TODO implement
         base = PostBase.from_create(create)
         table = cls.model_validate(base)
         return table
