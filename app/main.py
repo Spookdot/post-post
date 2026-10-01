@@ -6,7 +6,7 @@ from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from uuid import UUID
 
-from .models.sqlmodel import create_db_and_tables, User, Post, TokenResponse, PostCreate, PostPublic, Tag, tags_from_strs
+from .models.sqlmodel import create_db_and_tables, User, Post, TokenResponse, PostCreate, PostPublic, Tag, tags_from_strings
 from .dependencies import get_settings, get_engine, get_session
 from .auth import get_current_user, authenticate_user, generate_token, save_token_for_user, hash_password
 
@@ -75,7 +75,7 @@ def create_post(
 ) -> UUID:
     # TODO Associate posts with Users
     post = Post.from_create(post_create)
-    tags = tags_from_strs(post_create.tags)
+    tags = tags_from_strings(post_create.tags)
     post.add_tags(tags)
 
     session.add(post)

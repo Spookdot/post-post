@@ -25,7 +25,7 @@ class Tag(TagBase, table=True):
     def fetch_optional(cls, session: Session, name: str) -> Self | None:
         return session.exec(select(cls).where(cls.name == name)).one_or_none()
 
-def tags_from_strs(names: list[str]) -> list[Tag]:
+def tags_from_strings(names: list[str]) -> list[Tag]:
     return list(map(Tag.from_str, names))
 
 
