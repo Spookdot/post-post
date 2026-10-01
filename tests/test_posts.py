@@ -9,7 +9,7 @@ import os
 from app.main import app
 from app.auth import hash_password
 from app.dependencies import get_session, get_settings, Settings
-from app.models.sqlmodel import Post, TokenResponse, User, Tag
+from app.models import Post, TokenResponse, User, Tag
 
 @pytest.fixture(name="settings")
 def settings_fixture():

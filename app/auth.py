@@ -1,11 +1,12 @@
-from .dependencies import get_session
 from pwdlib import PasswordHash
 import secrets
 from typing import Annotated
 from fastapi import Depends, status, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 from sqlmodel import select, Session
-from .models.sqlmodel import User, Token
+
+from .dependencies import get_session
+from .models import User, Token
 
 oauth2_scheme  = OAuth2PasswordBearer(tokenUrl="token")
 password_hash = PasswordHash.recommended()

@@ -1,4 +1,4 @@
-from sqlmodel import select, Session
+from sqlmodel import Session
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Annotated
@@ -6,7 +6,7 @@ from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from uuid import UUID
 
-from .models.sqlmodel import create_db_and_tables, User, Post, TokenResponse, PostCreate, PostPublic, Tag, tags_from_strings
+from .models import create_db_and_tables, User, Post, TokenResponse, PostCreate, PostPublic, Tag, tags_from_strings
 from .dependencies import get_settings, get_engine, get_session
 from .auth import get_current_user, authenticate_user, generate_token, save_token_for_user, hash_password
 
