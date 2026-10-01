@@ -1,0 +1,51 @@
+from typing import Literal
+import uuid
+from sqlmodel import Field, SQLModel, Relationship
+from sqlalchemy import Engine
+
+class PostTagLink(SQLModel, table=True):
+    post_id: uuid.UUID | None = Field(default=None, foreign_key="post.id", primary_key=True)
+    tag_name: str | None = Field(default=None, foreign_key="tag.name", primary_key=True)
+
+
+class TagBase(SQLModel):
+    name: str = Field(max_length=256, primary_key=True)
+
+class TagCreate(SQLModel):
+    pass
+
+class Tag(TagBase, table=True):
+    posts: list["Post"] = Relationship(back_populates="tags", link_model=PostTagLink)
+
+
+class PostBase(SQLModel):
+    title: str = Field(max_length=64)
+    content: str
+
+class PostCreate(PostBase):
+    tags: list[str] = Field(default=[])
+
+class PostPublic(PostBase):
+    id: uuid.UUID
+    tags: list[str] = Field(default=[])
+
+class Post(PostBase, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+
+    tags: list["Tag"] = Relationship(back_populates="posts", link_model=PostTagLink)
+
+class User(SQLModel, table=True):
+    id: uuid.UUID | None = Field(default_factory=uuid.uuid4, primary_key=True)
+    username: str = Field(max_length=64)
+    password_hash: str = Field(max_length=256)
+
+class Token(SQLModel, table=True):
+    username: str = Field(max_length=64, foreign_key="user.username")
+    token: str = Field(max_length=64, primary_key=True)
+
+class TokenResponse(SQLModel):
+    access_token: str
+    token_type: Literal["bearer"]
+
+def create_db_and_tables(engine: Engine):
+    SQLModel.metadata.create_all(engine)

@@ -1,71 +1,92 @@
-from tortoise.contrib.fastapi import RegisterTortoise, tortoise_exception_handlers
+from sqlmodel import select, Session
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Annotated
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from .models.tortoise import Post, User
-from .models.pydantic import Post_Pydantic, Token_Pydantic, get_settings
+from .models.sqlmodel import create_db_and_tables, User, Post, TokenResponse, PostCreate, PostPublic, Tag
+from .dependencies import get_settings, get_engine, get_session
 from .auth import get_current_user, authenticate_user, generate_token, save_token_for_user, hash_password
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     settings = get_settings()
+    engine = get_engine()
+    username = settings.test_user_username
+    password = settings.test_user_password
 
-    async with RegisterTortoise(
-        app,
-        db_url=settings.db_url,
-        modules={ "models": ["app.models.tortoise"] },
-        generate_schemas=True
-    ):
-        # db connected
-        username = settings.test_user_username
-        password = settings.test_user_password
-        if username and password:
-            hashed_password = hash_password(password)
-
-            await User.create(username=username, password_hash=hashed_password)
-        yield
-        # app teardown
-    # db connections closed
+    create_db_and_tables(engine)
+    if username and password:
+        hashed_password = hash_password(password)
+        with Session(engine) as session:
+            test_user = User(username=username, password_hash=hashed_password)
+            session.add(test_user)
+            session.commit()
+    yield
+    # app teardown
 
 app = FastAPI(
     title="post-post",
     lifespan=lifespan,
-    exception_handlers=tortoise_exception_handlers(),
 )
 
 
-@app.post("/token", response_model=Token_Pydantic)
-async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()]):
+@app.post("/token", response_model=TokenResponse)
+def login(
+    session: Annotated[Session, Depends(get_session)],
+    form_data: Annotated[OAuth2PasswordRequestForm, Depends()]
+):
     # TODO Replace with actual Database use and password verification and return token
-    user = await authenticate_user(form_data.username, form_data.password)
+    user = authenticate_user(session, form_data.username, form_data.password)
     if not user:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Incorrect username or password")
 
     # Generate token
     token = generate_token()
-    await save_token_for_user(user.username, token)
+    save_token_for_user(session, user.username, token)
 
-    return Token_Pydantic(access_token=token, token_type="bearer")
+    return TokenResponse(access_token=token, token_type="bearer")
 
 
 # Post management
-@app.get("/post/{id}", response_model=Post_Pydantic, responses={404: {"model": str}})
-async def get_post(id: UUID):
-    item = await Post.get_or_none(id=id)
+@app.get("/post/{id}", response_model=PostPublic, responses={404: {"model": str}})
+def get_post(
+    id: UUID,
+    session: Annotated[Session, Depends(get_session)],
+):
+    statement = select(Post).where(Post.id == id)
+    results = session.exec(statement)
+    item = results.one_or_none()
     if not item:
         return (status.HTTP_404_NOT_FOUND, "No post under this ID")
-    return await Post_Pydantic.from_tortoise_orm(item)
+    
+    post_public = PostPublic(id=item.id, title=item.title, content=item.content)
+    for tag in item.tags:
+        post_public.tags.append(tag.name)
+
+    return post_public
 
 
 @app.post("/post")
-async def create_post(post: Post_Pydantic, _: Annotated[User, Depends(get_current_user)]) -> UUID:
+def create_post(
+    post_create: PostCreate, 
+    session: Annotated[Session, Depends(get_session)],
+    _: Annotated[User, Depends(get_current_user)]
+) -> UUID:
     # TODO Use actual User data
-    id = uuid4()
-    tpost = await Post.create(id=id, **post.model_dump(exclude_none=True))
-    await tpost.save()
-    return id
+    post_dict = post_create.model_dump()
+    tags = []
+    for tag in post_dict["tags"]:
+        tag_in_db = Tag(name=tag)
+        tags.append(tag_in_db)
+
+    post_dict["tags"] = tags
+
+    post = Post.model_validate(post_dict)
+    session.add(post)
+    session.commit()
+    session.refresh(post)
+    return post.id
 

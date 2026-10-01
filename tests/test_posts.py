@@ -1,45 +1,69 @@
-from pydantic import ValidationError
-from app.models.pydantic import get_settings, Token_Pydantic, Settings
+from sqlmodel import SQLModel, create_engine, StaticPool, Session, select
 from uuid import uuid4
-from tortoise.context import tortoise_test_context
 from fastapi import status
 from fastapi.testclient import TestClient
 import pytest_asyncio
 import pytest
 import os
-from app.models.tortoise import Post
-from app.main import app
 
-@pytest_asyncio.fixture
-def settings():
+from app.main import app
+from app.auth import hash_password
+from app.dependencies import get_session, get_settings, Settings
+from app.models.sqlmodel import Post, TokenResponse, User
+
+@pytest.fixture(name="settings")
+def settings_fixture():
     return get_settings()
 
-@pytest_asyncio.fixture
-async def db():
-    db_url = os.getenv("TORTOISE_TEST_DB", "sqlite://:memory:")
-    async with tortoise_test_context(["app.models.tortoise"], db_url=db_url) as ctx:
-        yield ctx
+@pytest.fixture(name="session")
+def session_fixture(settings: Settings):
+    engine = create_engine(settings.db_url, connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    SQLModel.metadata.create_all(engine)
+    with Session(engine) as session:
+        # Create test user
+        username = settings.test_user_username
+        password = settings.test_user_password
 
-@pytest_asyncio.fixture
-def client():
-    with TestClient(app, base_url="http://localhost:8000") as client:
+        password_hash = hash_password(password)
+
+        user = User(username=username, password_hash=password_hash)
+        session.add(user)
+        session.commit()
+
+        yield session
+
+@pytest.fixture(name="client")
+def client_fixture(session: Session):
+    def get_session_override():
+        return session
+
+    app.dependency_overrides[get_session] = get_session_override
+
+    with TestClient(app) as client:
         yield client
 
-@pytest.mark.asyncio
-async def test_create_post(db):
-    _ = db
+    app.dependency_overrides.clear()
+
+def test_create_post(session: Session):
     id = uuid4()
     title = "hello"
     content = "world"
 
-    await Post.create(id=id, title=title, content=content)
+    post = Post(id=id, title=title, content=content)
+    session.add(post)
+    session.commit()
+    session.refresh(post)
 
-    post_in_db = await Post.get(id=id)
+    assert post.id == id
+
+    statement = select(Post).where(Post.id == id)
+    results = session.exec(statement)
+    post_in_db = results.one()
+
     assert post_in_db.title == title
     assert post_in_db.content == content
 
-@pytest.mark.asyncio
-async def test_login(db, client: TestClient, settings: Settings):
+def test_login(client: TestClient, settings: Settings):
     form_data = {
         "username": settings.test_user_username,
         "password": settings.test_user_password
@@ -49,12 +73,12 @@ async def test_login(db, client: TestClient, settings: Settings):
 
     response_dict = response.json()
 
-    token_data = Token_Pydantic(**response_dict)
+    token_data = TokenResponse(**response_dict)
     assert token_data.token_type == "bearer"
     assert len(token_data.access_token) == 64
 
 @pytest.mark.asyncio
-async def test_authorization(db, client: TestClient, settings: Settings):
+async def test_authorization(client: TestClient, settings: Settings):
     title = "hello"
     content = "world"
     post_json = {"title": title, "content": content}
@@ -85,7 +109,7 @@ async def test_authorization(db, client: TestClient, settings: Settings):
     assert response.status_code == status.HTTP_200_OK, response.text
     
 @pytest.mark.asyncio
-async def test_tags(db, client: TestClient, settings: Settings):
+async def test_tags(client: TestClient, settings: Settings):
     title = "welcome to my blog"
     content = "This is my blog"
     tags = ["introduction", "personal"]
