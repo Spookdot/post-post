@@ -2,9 +2,7 @@ from sqlmodel import SQLModel, create_engine, StaticPool, Session, select
 from uuid import uuid4
 from fastapi import status
 from fastapi.testclient import TestClient
-import pytest_asyncio
 import pytest
-import os
 
 from app.main import app
 from app.auth import hash_password

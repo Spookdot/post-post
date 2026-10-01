@@ -11,7 +11,7 @@ from .dependencies import get_settings, get_engine, get_session
 from .auth import get_current_user, authenticate_user, generate_token, save_token_for_user, hash_password
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
     settings = get_settings()
     engine = get_engine()
     username = settings.test_user_username
