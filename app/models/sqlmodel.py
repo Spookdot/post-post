@@ -1,6 +1,6 @@
 from typing import Literal, Self
 import uuid
-from sqlmodel import Field, SQLModel, Relationship
+from sqlmodel import Field, SQLModel, Relationship, Session, select
 from sqlalchemy import Engine
 
 class PostTagLink(SQLModel, table=True):
@@ -11,11 +11,22 @@ class PostTagLink(SQLModel, table=True):
 class TagBase(SQLModel):
     name: str = Field(max_length=256, primary_key=True)
 
+    @classmethod
+    def from_str(cls, name: str) -> Self:
+        return cls(name=name)
+
 class TagCreate(SQLModel):
     pass
 
 class Tag(TagBase, table=True):
     posts: list["Post"] = Relationship(back_populates="tags", link_model=PostTagLink)
+
+    @classmethod
+    def fetch_optional(cls, session: Session, name: str) -> Self | None:
+        return session.exec(select(cls).where(cls.name == name)).one_or_none()
+
+def tags_from_strs(names: list[str]) -> list[Tag]:
+    return list(map(Tag.from_str, names))
 
 
 class PostBase(SQLModel):
@@ -51,6 +62,13 @@ class Post(PostBase, table=True):
 
     def get_tags_as_str(self) -> list[str]:
         return list(map(lambda tag: tag.name, self.tags))
+
+    def add_tags(self, tags: list[Tag]):
+        self.tags.extend(tags)
+
+    @classmethod
+    def fetch_optional(cls, session: Session, id: uuid.UUID) -> Self | None:
+        return session.exec(select(cls).where(cls.id == id)).one_or_none()
 
     @classmethod
     def from_create(cls, create: PostCreate) -> Self:

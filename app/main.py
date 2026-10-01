@@ -6,7 +6,7 @@ from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from uuid import UUID
 
-from .models.sqlmodel import create_db_and_tables, User, Post, TokenResponse, PostCreate, PostPublic, Tag
+from .models.sqlmodel import create_db_and_tables, User, Post, TokenResponse, PostCreate, PostPublic, Tag, tags_from_strs
 from .dependencies import get_settings, get_engine, get_session
 from .auth import get_current_user, authenticate_user, generate_token, save_token_for_user, hash_password
 
@@ -56,15 +56,13 @@ def get_post(
     id: UUID,
     session: Annotated[Session, Depends(get_session)],
 ):
-    statement = select(Post).where(Post.id == id)
-    results = session.exec(statement)
-    item = results.one_or_none()
+    item = Post.fetch_optional(session, id)
     if not item:
         return (status.HTTP_404_NOT_FOUND, "No post under this ID")
     
     post_public = PostPublic(id=item.id, title=item.title, content=item.content)
-    for tag in item.tags:
-        post_public.tags.append(tag.name)
+    tags = item.get_tags_as_str()
+    post_public.tags.extend(tags)
 
     return post_public
 
@@ -75,12 +73,10 @@ def create_post(
     session: Annotated[Session, Depends(get_session)],
     _: Annotated[User, Depends(get_current_user)]
 ) -> UUID:
-    # TODO Use actual User data
+    # TODO Associate posts with Users
     post = Post.from_create(post_create)
-
-    for tag in post_create.tags:
-        tag_in_db = Tag(name=tag)
-        post.tags.append(tag_in_db)
+    tags = tags_from_strs(post_create.tags)
+    post.add_tags(tags)
 
     session.add(post)
     session.commit()
@@ -88,20 +84,11 @@ def create_post(
     return post.id
 
 
-@app.get("/tag/{tag}", response_model=list[PostPublic])
+@app.get("/tag/{tag_name}", response_model=list[PostPublic])
 def get_posts_by_tag(
-        tag: str, 
+        tag_name: str, 
         session: Annotated[Session, Depends(get_session)],
 ):
-    statement = select(Tag).where(Tag.name == tag)
-    results = session.exec(statement)
-    tag_in_db = results.one_or_none()
-    if not tag_in_db:
-        return []
-
-    posts = []
-    for post in tag_in_db.posts:
-        posts.append(post.into_public())
-
-    return posts
-
+    if tag := Tag.fetch_optional(session, tag_name):
+     return list(map(Post.into_public, tag.posts))
+    return []
