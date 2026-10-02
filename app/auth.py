@@ -3,7 +3,7 @@ import secrets
 from typing import Annotated
 from fastapi import Depends, status, HTTPException
 from fastapi.security import OAuth2PasswordBearer
-from sqlmodel import select, Session
+from sqlmodel import Session
 
 from .dependencies import get_session
 from .models import User, Token
@@ -24,16 +24,11 @@ def save_token_for_user(session: Session, username: str, token: str):
 
 
 def get_token_data(session: Session, token: str) -> Token | None:
-    statement = select(Token).where(Token.token == token)
-    results = session.exec(statement)
-    return results.one_or_none()
+    return Token.fetch_optional(session, token)
 
 
 def get_user(session: Session, username: str) -> User | None:
-    statement = select(User).where(User.username == username)
-    results = session.exec(statement)
-    user = results.one_or_none()
-    return user
+    return User.fetch_optional(session, username)
 
 
 def get_user_from_token(session: Session, token: str) -> User | None:

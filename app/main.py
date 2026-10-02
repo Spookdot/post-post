@@ -50,9 +50,12 @@ def get_post(
     if not item:
         return (status.HTTP_404_NOT_FOUND, "No post under this ID")
     
-    post_public = PostPublic.model_validate(item)
     tags = item.get_tags_as_str()
-    post_public.tags.extend(tags)
+    post_public = item.into_convert().into_public(
+        id=item.id,
+        username=item.username,
+        tags=tags
+    )
 
     return post_public
 
