@@ -7,7 +7,7 @@ import pytest
 from app.main import app
 from app.auth import hash_password
 from app.dependencies import get_session, get_settings, Settings
-from app.models import Post, TokenResponse, User, Tag
+from app.models import Post, TokenResponse, User, Tag, PostCreate
 
 @pytest.fixture(name="settings", scope="session")
 def settings_fixture():
@@ -82,11 +82,9 @@ def test_login(client: TestClient, settings: Settings):
     assert token_data.token_type == "bearer"
     assert len(token_data.access_token) == 64
 
-@pytest.mark.asyncio
-async def test_authorization(client: TestClient, settings: Settings):
-    title = "hello"
-    content = "world"
-    post_json = {"title": title, "content": content}
+def test_authorization(client: TestClient, settings: Settings):
+    post = PostCreate(title="hello", content="world")
+    post_json = post.model_dump()
 
     # Test that I cannnot make posts without logging in
     response = client.post("/post", json=post_json)
@@ -108,14 +106,12 @@ async def test_authorization(client: TestClient, settings: Settings):
     assert response.status_code == status.HTTP_200_OK, response.text
     
 def test_tags(session: Session, client: TestClient, settings: Settings):
-    title = "welcome to my blog"
-    content = "This is my blog"
-    tags = ["introduction", "personal"]
-    post_json = {
-        "title": title,
-        "content": content,
-        "tags": tags
-    }
+    post = PostCreate(
+        title="welcome to my blog", 
+        content="This is my blog",
+        tags=["introduction", "personal"]
+    )
+    post_json = post.model_dump()
 
     # Log in
     token_data = login(client, settings)
@@ -127,12 +123,11 @@ def test_tags(session: Session, client: TestClient, settings: Settings):
     post_id = response.json()
     
     # Check the post was actually created
-    statement = select(Tag).where(Tag.name == tags[0])
-    results = session.exec(statement)
-    _ = results.one()
+    tag_in_db = Tag.fetch_optional(session, post.tags[0])
+    assert tag_in_db is not None, "Tag is missing from database"
 
     # Search for the post via tags
-    response = client.get(f"/tag/{tags[0]}")
+    response = client.get(f"/tag/{post.tags[0]}")
     assert response.status_code == 200, "Unable to search for posts using tags"
     posts = response.json()
     
@@ -140,14 +135,12 @@ def test_tags(session: Session, client: TestClient, settings: Settings):
     assert any([i["id"] == post_id for i in posts]), posts
 
 def test_user_posts(client: TestClient, settings: Settings):
-    title = "welcome to my blog"
-    content = "This is my blog"
-    tags = ["introduction", "personal"]
-    post_json = {
-        "title": title,
-        "content": content,
-        "tags": tags
-    }
+    post = PostCreate(
+        title="welcome to my blog", 
+        content="This is my blog",
+        tags=["introduction", "personal"]
+    )
+    post_json = post.model_dump()
 
     token = login(client, settings).access_token
 
