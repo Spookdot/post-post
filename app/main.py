@@ -1,12 +1,13 @@
+from fastapi.responses import JSONResponse
 from sqlmodel import Session
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Annotated
+from typing import Annotated, Any
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from uuid import UUID
 
-from .models import create_db_and_tables, User, Post, TokenResponse, PostCreate, PostPublic, Tag, tags_from_strings
+from .models import create_db_and_tables, User, Post, TokenResponse, PostCreate, PostPublic, Tag, tags_from_strings, Message
 from .dependencies import get_engine, get_session
 from .auth import get_current_user, authenticate_user, generate_token, save_token_for_user
 
@@ -21,6 +22,10 @@ app = FastAPI(
     title="post-post",
     lifespan=lifespan,
 )
+
+responses: dict[int | str, dict[str, Any]] = {
+    404: {"model": Message}
+}
 
 
 @app.post("/token", response_model=TokenResponse)
@@ -41,14 +46,14 @@ def login(
 
 
 # Post management
-@app.get("/post/{id}", response_model=PostPublic, responses={404: {"model": str}})
+@app.get("/post/{id}", response_model=PostPublic, responses=responses)
 def get_post(
     id: UUID,
     session: Annotated[Session, Depends(get_session)],
 ):
     item = Post.fetch_optional(session, id)
     if not item:
-        return (status.HTTP_404_NOT_FOUND, "No post under this ID")
+        return JSONResponse({"message": "No post under this ID"}, status_code=404)
     
     tags = item.get_tags_as_str()
     post_public = item.into_convert().into_public(
@@ -75,21 +80,36 @@ def create_post(
     session.refresh(post)
     return post.id
 
+@app.delete("/post/{id}", response_model=UUID, responses=responses)
+def delete_post(
+    id: UUID,
+    session: Annotated[Session, Depends(get_session)],
+    user: Annotated[User, Depends(get_current_user)]
+):
+    if post := Post.fetch_optional(session, id):
+        if not post.username == user.username:
+            return (status.HTTP_403_FORBIDDEN, "This post is not yours")
 
-@app.get("/tag/{tag_name}", response_model=list[PostPublic])
+        return_id = post.id
+        session.delete(post)
+        session.commit()
+        return return_id
+    return JSONResponse({"message": "No post under this ID"}, status_code=404)
+
+@app.get("/tag/{tag_name}", response_model=list[PostPublic], responses=responses)
 def get_posts_by_tag(
     tag_name: str, 
     session: Annotated[Session, Depends(get_session)],
 ):
     if tag := Tag.fetch_optional(session, tag_name):
      return list(map(Post.into_public, tag.posts))
-    return []
+    return JSONResponse({"message": "No Posts with this Tag"}, status_code=404)
 
-@app.get("/user/{username}", response_model=list[PostPublic])
+@app.get("/user/{username}", response_model=list[PostPublic], responses=responses)
 def get_posts_by_user(
     username: str,
     session: Annotated[Session, Depends(get_session)],
 ):
     if user := User.fetch_optional(session, username):
         return list(map(Post.into_public, user.posts))
-    return []
+    return JSONResponse({"message": "No Posts by this User"}, status_code=404)

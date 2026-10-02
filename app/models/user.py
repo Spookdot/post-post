@@ -4,8 +4,13 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .post import Post
 
-class User(SQLModel, table=True):
+class UserBase(SQLModel):
     username: str = Field(max_length=64, primary_key=True)
+
+class UserCreate(UserBase):
+    password: str = Field(max_length=36)
+
+class User(UserBase, table=True):
     password_hash: str = Field(max_length=256)
 
     posts: list["Post"] = Relationship(back_populates="user")

@@ -137,9 +137,9 @@ def test_user_posts(client: TestClient, test_user: UserCreate, example_post: Pos
 
     token = login(client, test_user).access_token
 
-    # Make a post with tags
+    # Make a post
     response = client.post("/post", json=post_json, headers={"Authorization": f"Bearer {token}"})
-    assert response.status_code == 200, "Unable to create post with tags"
+    assert response.status_code == 200, "Unable to create post"
     post_id = response.json()
 
     response = client.get(f"/user/{test_user.username}", headers={"Authorization": f"Bearer {token}"})
@@ -147,3 +147,28 @@ def test_user_posts(client: TestClient, test_user: UserCreate, example_post: Pos
     posts = response.json()
 
     assert any([i["id"] == post_id for i in posts]), posts
+
+def test_post_delete(client: TestClient, test_user: UserCreate, example_post: PostCreate):
+    post_json = example_post.model_dump()
+    token = login(client, test_user).access_token
+
+    # Create a Post
+    response = client.post("/post", json=post_json, headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200, "Unable to create post"
+    post_id = response.json()
+    
+    # Check that the post was created
+    response = client.get(f"/post/{post_id}")
+    assert response.status_code == status.HTTP_200_OK, response.text
+
+    # Check that I cannot delete the post without Authorization
+    response = client.delete(f"/post/{post_id}")
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED, response.text
+
+    # Delete post
+    response = client.delete(f"/post/{post_id}", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == status.HTTP_200_OK, response.text
+
+    # Check that the post is now missing
+    response = client.get(f"/post/{post_id}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND, response.text
