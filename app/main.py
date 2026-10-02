@@ -7,23 +7,13 @@ from fastapi.security import OAuth2PasswordRequestForm
 from uuid import UUID
 
 from .models import create_db_and_tables, User, Post, TokenResponse, PostCreate, PostPublic, Tag, tags_from_strings
-from .dependencies import get_settings, get_engine, get_session
-from .auth import get_current_user, authenticate_user, generate_token, save_token_for_user, hash_password
+from .dependencies import get_engine, get_session
+from .auth import get_current_user, authenticate_user, generate_token, save_token_for_user
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
-    settings = get_settings()
     engine = get_engine()
-    username = settings.test_user_username
-    password = settings.test_user_password
-
     create_db_and_tables(engine)
-    if username and password:
-        hashed_password = hash_password(password)
-        with Session(engine) as session:
-            test_user = User(username=username, password_hash=hashed_password)
-            session.add(test_user)
-            session.commit()
     yield
     # app teardown
 
@@ -60,7 +50,7 @@ def get_post(
     if not item:
         return (status.HTTP_404_NOT_FOUND, "No post under this ID")
     
-    post_public = PostPublic(id=item.id, title=item.title, content=item.content)
+    post_public = PostPublic.model_validate(item)
     tags = item.get_tags_as_str()
     post_public.tags.extend(tags)
 
@@ -71,10 +61,9 @@ def get_post(
 def create_post(
     post_create: PostCreate, 
     session: Annotated[Session, Depends(get_session)],
-    _: Annotated[User, Depends(get_current_user)]
+    user: Annotated[User, Depends(get_current_user)]
 ) -> UUID:
-    # TODO Associate posts with Users
-    post = Post.from_create(post_create)
+    post = post_create.into_convert().into_table(user)
     tags = tags_from_strings(post_create.tags)
     post.add_tags(tags)
 
@@ -86,9 +75,18 @@ def create_post(
 
 @app.get("/tag/{tag_name}", response_model=list[PostPublic])
 def get_posts_by_tag(
-        tag_name: str, 
-        session: Annotated[Session, Depends(get_session)],
+    tag_name: str, 
+    session: Annotated[Session, Depends(get_session)],
 ):
     if tag := Tag.fetch_optional(session, tag_name):
      return list(map(Post.into_public, tag.posts))
+    return []
+
+@app.get("/user/{username}", response_model=list[PostPublic])
+def get_posts_by_user(
+    username: str,
+    session: Annotated[Session, Depends(get_session)],
+):
+    if user := User.fetch_optional(session, username):
+        return list(map(Post.into_public, user.posts))
     return []

@@ -1,28 +1,45 @@
 from sqlmodel import SQLModel, Session, Field, Relationship, select
 from typing import Self, TYPE_CHECKING
+from uuid import UUID
 import uuid
 
 from .link import PostTagLink
 
 if TYPE_CHECKING:
     from .tag import Tag
+    from .user import User
 
 class PostBase(SQLModel):
     title: str = Field(max_length=64)
     content: str
 
-    @classmethod
-    def from_create(cls, create: "PostCreate") -> Self:
-        return cls(**create.model_dump())
+    def into_convert(self) -> "PostConvert":
+        return PostConvert.model_validate(self)
+
+class PostConvert(PostBase):
+    def into_create(self, tags: list[str]) -> "PostCreate":
+        create = PostCreate(**self.model_dump())
+        create.tags = tags
+        return create
+
+    def into_public(self, id: UUID, username: str, tags: list[str]) -> "PostPublic":
+        public = PostPublic(**self.model_dump())
+        public.id = id
+        public.username = username
+        public.tags = tags
+        return public
+
+    def into_table(self, user: "User") -> Post:
+        table = Post(user=user, **self.model_dump())
+        table.tags = []
+        return table
 
 class PostCreate(PostBase):
     tags: list[str] = Field(default=[])
 
-    def into_base(self) -> PostBase:
-        return PostBase.from_create(self)
-
 class PostPublic(PostBase):
-    id: uuid.UUID
+    id: UUID
+    username: str
     tags: list[str] = Field(default=[])
 
     @classmethod
@@ -34,8 +51,10 @@ class PostPublic(PostBase):
         return cls.model_validate(post_dict)
 
 class Post(PostBase, table=True):
-    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    id: UUID = Field(default_factory=uuid.uuid4, primary_key=True)
 
+    username: str = Field(foreign_key="user.username")
+    user: "User" = Relationship(back_populates="posts")
     tags: list["Tag"] = Relationship(
         back_populates="posts", 
         link_model=PostTagLink
@@ -50,12 +69,6 @@ class Post(PostBase, table=True):
     @classmethod
     def fetch_optional(cls, session: Session, id: uuid.UUID) -> Self | None:
         return session.exec(select(cls).where(cls.id == id)).one_or_none()
-
-    @classmethod
-    def from_create(cls, create: PostCreate) -> Self:
-        base = PostBase.from_create(create)
-        table = cls.model_validate(base)
-        return table
 
     def into_public(self) -> PostPublic:
         return PostPublic.from_table(self)

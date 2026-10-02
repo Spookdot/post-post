@@ -9,7 +9,7 @@ from app.auth import hash_password
 from app.dependencies import get_session, get_settings, Settings
 from app.models import Post, TokenResponse, User, Tag
 
-@pytest.fixture(name="settings")
+@pytest.fixture(name="settings", scope="session")
 def settings_fixture():
     return get_settings()
 
@@ -42,12 +42,27 @@ def client_fixture(session: Session):
 
     app.dependency_overrides.clear()
 
-def test_create_post(session: Session):
+def login(client: TestClient, settings: Settings) -> TokenResponse:
+    form_data = {
+        "username": settings.test_user_username,
+        "password": settings.test_user_password
+    }
+    response = client.post("/token", data=form_data)
+    
+    assert response.status_code == 200, response.text
+
+    response_json = response.json()
+
+    return TokenResponse.model_validate(response_json)
+
+
+def test_create_post(session: Session, settings: Settings):
     id = uuid4()
     title = "hello"
     content = "world"
+    username = settings.test_user_username
 
-    post = Post(id=id, title=title, content=content)
+    post = Post(id=id, title=title, content=content, username=username)
     session.add(post)
     session.commit()
     session.refresh(post)
@@ -60,18 +75,10 @@ def test_create_post(session: Session):
 
     assert post_in_db.title == title
     assert post_in_db.content == content
+    assert post_in_db.username == username
 
 def test_login(client: TestClient, settings: Settings):
-    form_data = {
-        "username": settings.test_user_username,
-        "password": settings.test_user_password
-    }
-    response = client.post("/token", data=form_data)
-    assert response.status_code == 200, response.text
-
-    response_dict = response.json()
-
-    token_data = TokenResponse(**response_dict)
+    token_data = login(client, settings)
     assert token_data.token_type == "bearer"
     assert len(token_data.access_token) == 64
 
@@ -86,14 +93,8 @@ async def test_authorization(client: TestClient, settings: Settings):
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     # Test login endpoint
-    form_data = {
-        "username": settings.test_user_username,
-        "password": settings.test_user_password
-    }
-    response = client.post("/token", data=form_data)
-    assert response.status_code == status.HTTP_200_OK
-    response_json = response.json()
-    token = response_json["access_token"]
+    token_data = login(client, settings)
+    token = token_data.access_token
     assert len(token) == 64
 
     # Test that I can now make posts
@@ -117,13 +118,8 @@ def test_tags(session: Session, client: TestClient, settings: Settings):
     }
 
     # Log in
-    form_data = {
-        "username": settings.test_user_username,
-        "password": settings.test_user_password
-    }
-    response = client.post("/token", data=form_data)
-    response_json = response.json()
-    token = response_json["access_token"]
+    token_data = login(client, settings)
+    token = token_data.access_token
 
     # Make a post with tags
     response = client.post("/post", json=post_json, headers={"Authorization": f"Bearer {token}"})
@@ -141,4 +137,27 @@ def test_tags(session: Session, client: TestClient, settings: Settings):
     posts = response.json()
     
     # Verify that any of the posts that were returned is actually the one we made
+    assert any([i["id"] == post_id for i in posts]), posts
+
+def test_user_posts(client: TestClient, settings: Settings):
+    title = "welcome to my blog"
+    content = "This is my blog"
+    tags = ["introduction", "personal"]
+    post_json = {
+        "title": title,
+        "content": content,
+        "tags": tags
+    }
+
+    token = login(client, settings).access_token
+
+    # Make a post with tags
+    response = client.post("/post", json=post_json, headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200, "Unable to create post with tags"
+    post_id = response.json()
+
+    response = client.get(f"/user/{settings.test_user_username}", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200, "Unable to find posts associated with the Test User"
+    posts = response.json()
+
     assert any([i["id"] == post_id for i in posts]), posts
