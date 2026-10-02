@@ -18,15 +18,19 @@ class PostBase(SQLModel):
 
 class PostConvert(PostBase):
     def into_create(self, tags: list[str]) -> "PostCreate":
-        create = PostCreate(**self.model_dump())
-        create.tags = tags
+        create = PostCreate(
+            tags=tags,
+            **self.model_dump()
+        )
         return create
 
     def into_public(self, id: UUID, username: str, tags: list[str]) -> "PostPublic":
-        public = PostPublic(**self.model_dump())
-        public.id = id
-        public.username = username
-        public.tags = tags
+        public = PostPublic(
+            id=id, 
+            username=username, 
+            tags=tags, 
+            **self.model_dump()
+        )
         return public
 
     def into_table(self, user: "User") -> Post:
