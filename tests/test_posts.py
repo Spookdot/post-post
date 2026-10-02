@@ -7,7 +7,7 @@ import pytest
 from app.main import app
 from app.auth import hash_password
 from app.dependencies import get_session, get_settings, Settings
-from app.models import Post, TokenResponse, User, Tag, PostCreate
+from app.models import Post, TokenResponse, User, Tag, PostCreate, UserCreate
 
 @pytest.fixture(name="settings", scope="session")
 def settings_fixture():
@@ -18,16 +18,6 @@ def session_fixture(settings: Settings):
     engine = create_engine(settings.db_url, connect_args={"check_same_thread": False}, poolclass=StaticPool)
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
-        # Create test user
-        username = settings.test_user_username
-        password = settings.test_user_password
-
-        password_hash = hash_password(password)
-
-        user = User(username=username, password_hash=password_hash)
-        session.add(user)
-        session.commit()
-
         yield session
 
 @pytest.fixture(name="client")
@@ -42,18 +32,31 @@ def client_fixture(session: Session):
 
     app.dependency_overrides.clear()
 
-def login(client: TestClient, settings: Settings) -> TokenResponse:
-    form_data = {
-        "username": settings.test_user_username,
-        "password": settings.test_user_password
-    }
-    response = client.post("/token", data=form_data)
-    
+@pytest.fixture(name="test_user")
+def user_fixture(session: Session, settings: Settings) -> UserCreate:
+    username = settings.test_user_username
+    password = settings.test_user_password
+
+    password_hash = hash_password(password)
+
+    user = User(username=username, password_hash=password_hash)
+    session.add(user)
+    session.commit()
+    return UserCreate(username=username, password=password)
+
+@pytest.fixture(name="example_post")
+def example_post_fixture() -> PostCreate:
+    return PostCreate(
+        title="welcome to my blog", 
+        content="This is my blog",
+        tags=["introduction", "personal"]
+    )
+
+def login(client: TestClient, user: UserCreate) -> TokenResponse:
+    response = client.post("/token", data=user.model_dump())
     assert response.status_code == 200, response.text
 
-    response_json = response.json()
-
-    return TokenResponse.model_validate(response_json)
+    return TokenResponse.model_validate(response.json())
 
 
 def test_create_post(session: Session, settings: Settings):
@@ -77,12 +80,12 @@ def test_create_post(session: Session, settings: Settings):
     assert post_in_db.content == content
     assert post_in_db.username == username
 
-def test_login(client: TestClient, settings: Settings):
-    token_data = login(client, settings)
+def test_login(test_user: UserCreate, client: TestClient):
+    token_data = login(client, test_user)
     assert token_data.token_type == "bearer"
     assert len(token_data.access_token) == 64
 
-def test_authorization(client: TestClient, settings: Settings):
+def test_authorization(client: TestClient, test_user: UserCreate):
     post = PostCreate(title="hello", content="world")
     post_json = post.model_dump()
 
@@ -91,7 +94,7 @@ def test_authorization(client: TestClient, settings: Settings):
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     # Test login endpoint
-    token_data = login(client, settings)
+    token_data = login(client, test_user)
     token = token_data.access_token
     assert len(token) == 64
 
@@ -105,16 +108,11 @@ def test_authorization(client: TestClient, settings: Settings):
     assert response.status_code != status.HTTP_401_UNAUTHORIZED
     assert response.status_code == status.HTTP_200_OK, response.text
     
-def test_tags(session: Session, client: TestClient, settings: Settings):
-    post = PostCreate(
-        title="welcome to my blog", 
-        content="This is my blog",
-        tags=["introduction", "personal"]
-    )
-    post_json = post.model_dump()
+def test_tags(session: Session, client: TestClient, test_user: UserCreate, example_post: PostCreate):
+    post_json = example_post.model_dump()
 
     # Log in
-    token_data = login(client, settings)
+    token_data = login(client, test_user)
     token = token_data.access_token
 
     # Make a post with tags
@@ -123,33 +121,28 @@ def test_tags(session: Session, client: TestClient, settings: Settings):
     post_id = response.json()
     
     # Check the post was actually created
-    tag_in_db = Tag.fetch_optional(session, post.tags[0])
+    tag_in_db = Tag.fetch_optional(session, example_post.tags[0])
     assert tag_in_db is not None, "Tag is missing from database"
 
     # Search for the post via tags
-    response = client.get(f"/tag/{post.tags[0]}")
+    response = client.get(f"/tag/{example_post.tags[0]}")
     assert response.status_code == 200, "Unable to search for posts using tags"
     posts = response.json()
     
     # Verify that any of the posts that were returned is actually the one we made
     assert any([i["id"] == post_id for i in posts]), posts
 
-def test_user_posts(client: TestClient, settings: Settings):
-    post = PostCreate(
-        title="welcome to my blog", 
-        content="This is my blog",
-        tags=["introduction", "personal"]
-    )
-    post_json = post.model_dump()
+def test_user_posts(client: TestClient, test_user: UserCreate, example_post: PostCreate):
+    post_json = example_post.model_dump()
 
-    token = login(client, settings).access_token
+    token = login(client, test_user).access_token
 
     # Make a post with tags
     response = client.post("/post", json=post_json, headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200, "Unable to create post with tags"
     post_id = response.json()
 
-    response = client.get(f"/user/{settings.test_user_username}", headers={"Authorization": f"Bearer {token}"})
+    response = client.get(f"/user/{test_user.username}", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200, "Unable to find posts associated with the Test User"
     posts = response.json()
 
