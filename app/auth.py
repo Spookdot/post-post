@@ -1,7 +1,7 @@
 from pwdlib import PasswordHash
 import secrets
 from typing import Annotated
-from fastapi import Depends, status, HTTPException
+from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 from sqlmodel import Session
 
@@ -61,10 +61,9 @@ def get_current_user(
         session: Annotated[Session, Depends(get_session)], 
         token: Annotated[str, Depends(oauth2_scheme)]
 ) -> User:
-    credentials_exception = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated", headers={"WWW-Authenticate": "Bearer"})
     # TODO actually fetch user and verify token
     user = get_user_from_token(session, token)
     if not user:
-        raise credentials_exception
+        raise HTTPException(401, "Not authenticated", headers={"WWW-Authenticate": "Bearer"})
 
     return user

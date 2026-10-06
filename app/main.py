@@ -1,13 +1,12 @@
-from fastapi.responses import JSONResponse
 from sqlmodel import Session
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.security import OAuth2PasswordRequestForm
 from uuid import UUID
 
-from .models import create_db_and_tables, User, Post, TokenResponse, PostCreate, PostPublic, Tag, tags_from_strings, Message
+from .models import create_db_and_tables, User, Post, TokenResponse, PostCreate, PostPublic, Tag, tags_from_strings, HTTPError
 from .dependencies import get_engine, get_session
 from .auth import get_current_user, authenticate_user, generate_token, save_token_for_user
 
@@ -23,20 +22,24 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-responses: dict[int | str, dict[str, Any]] = {
-    404: {"model": Message}
+get_responses: dict[int | str, dict[str, Any]] = {
+    404: {"model": HTTPError}
+}
+post_responses: dict[int | str, dict[str, Any]] = {
+    400: {"model": HTTPError}
 }
 
+UserDependency = Annotated[User, Depends(get_current_user)]
+SessionDependency = Annotated[Session, Depends(get_session)]
 
-@app.post("/token", response_model=TokenResponse)
+@app.post("/token", response_model=TokenResponse, responses=post_responses)
 def login(
-    session: Annotated[Session, Depends(get_session)],
+    session: SessionDependency,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()]
-):
-    # TODO Replace with actual Database use and password verification and return token
+) -> TokenResponse:
     user = authenticate_user(session, form_data.username, form_data.password)
     if not user:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Incorrect username or password")
+        raise HTTPException(status_code=400, detail="Incorrect username or password")
 
     # Generate token
     token = generate_token()
@@ -46,14 +49,11 @@ def login(
 
 
 # Post management
-@app.get("/post/{id}", response_model=PostPublic, responses=responses)
-def get_post(
-    id: UUID,
-    session: Annotated[Session, Depends(get_session)],
-):
+@app.get("/post/{id}", response_model=PostPublic, responses=get_responses)
+def get_post(id: UUID, session: SessionDependency) -> PostPublic:
     item = Post.fetch_optional(session, id)
     if not item:
-        return JSONResponse({"message": "No post under this ID"}, status_code=404)
+        raise HTTPException(404, "No post under this ID")
     
     tags = item.get_tags_as_str()
     post_public = item.into_convert().into_public(
@@ -65,12 +65,8 @@ def get_post(
     return post_public
 
 
-@app.post("/post")
-def create_post(
-    post_create: PostCreate, 
-    session: Annotated[Session, Depends(get_session)],
-    user: Annotated[User, Depends(get_current_user)]
-) -> UUID:
+@app.post("/post", response_model=UUID, responses=post_responses)
+def create_post(post_create: PostCreate, session: SessionDependency, user: UserDependency):
     post = post_create.into_convert().into_table(user)
     tags = tags_from_strings(post_create.tags)
     post.add_tags(tags)
@@ -80,36 +76,36 @@ def create_post(
     session.refresh(post)
     return post.id
 
-@app.delete("/post/{id}", response_model=UUID, responses=responses)
-def delete_post(
-    id: UUID,
-    session: Annotated[Session, Depends(get_session)],
-    user: Annotated[User, Depends(get_current_user)]
-):
+@app.delete(
+    "/post/{id}", 
+    response_model=UUID, 
+    responses={ 403: { "model": HTTPError }, **get_responses}
+)
+def delete_post(id: UUID, session: SessionDependency, user: UserDependency) -> UUID:
     if post := Post.fetch_optional(session, id):
         if not post.username == user.username:
-            return (status.HTTP_403_FORBIDDEN, "This post is not yours")
+            raise HTTPException(403, "This post is not yours")
 
         return_id = post.id
         session.delete(post)
         session.commit()
         return return_id
-    return JSONResponse({"message": "No post under this ID"}, status_code=404)
+    raise HTTPException(404, "No post under this ID")
 
-@app.get("/tag/{tag_name}", response_model=list[PostPublic], responses=responses)
+@app.get("/tag/{tag_name}", response_model=list[PostPublic], responses=get_responses)
 def get_posts_by_tag(
     tag_name: str, 
-    session: Annotated[Session, Depends(get_session)],
-):
+    session: SessionDependency,
+) -> list[PostPublic]:
     if tag := Tag.fetch_optional(session, tag_name):
-     return list(map(Post.into_public, tag.posts))
-    return JSONResponse({"message": "No Posts with this Tag"}, status_code=404)
+        return list(map(Post.into_public, tag.posts))
+    raise HTTPException(404, "No Posts with this Tag")
 
-@app.get("/user/{username}", response_model=list[PostPublic], responses=responses)
+@app.get("/user/{username}", response_model=list[PostPublic], responses=get_responses)
 def get_posts_by_user(
     username: str,
-    session: Annotated[Session, Depends(get_session)],
-):
+    session: SessionDependency,
+) -> list[PostPublic]:
     if user := User.fetch_optional(session, username):
         return list(map(Post.into_public, user.posts))
-    return JSONResponse({"message": "No Posts by this User"}, status_code=404)
+    raise HTTPException(404, "No Posts by this User")
