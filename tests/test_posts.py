@@ -7,7 +7,7 @@ import pytest
 from app.main import app
 from app.auth import hash_password
 from app.dependencies import get_session, get_settings, Settings
-from app.models import Post, TokenResponse, User, Tag, PostCreate, UserCreate
+from app.models import Post, TokenResponse, User, Tag, PostCreate, UserCreate, PostCreateReblog, PostPublic
 
 @pytest.fixture(name="settings", scope="session")
 def settings_fixture():
@@ -172,3 +172,51 @@ def test_post_delete(client: TestClient, test_user: UserCreate, example_post: Po
     # Check that the post is now missing
     response = client.get(f"/post/{post_id}")
     assert response.status_code == status.HTTP_404_NOT_FOUND, response.text
+
+def test_reblog_with_content(client: TestClient, test_user: UserCreate, example_post: PostCreate):
+    # Log in
+    token_data = login(client, test_user)
+    token = token_data.access_token
+
+    # Make a post
+    response = client.post("/post", json=example_post.model_dump(mode="json"), headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200
+    reblog_id = response.json()
+
+    # Create reblog with content
+    post = PostCreateReblog(title="Addition", content="I think this", reblog=reblog_id)
+    response = client.post("/post", json=post.model_dump(mode="json"), headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200
+    post_id = response.json()
+
+    # Check the reblog actually worked
+    response = client.get(f"/post/{post_id}")
+    assert response.status_code == 200
+    post_dict = response.json()
+    assert post_dict is not None
+    post = PostPublic.model_validate(post_dict)
+    assert str(post.reblog_of_id) == reblog_id
+
+def test_reblog_without_content(client: TestClient, test_user: UserCreate, example_post: PostCreate):
+    # Log in
+    token_data = login(client, test_user)
+    token = token_data.access_token
+
+    # Make a post
+    response = client.post("/post", json=example_post.model_dump(mode="json"), headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200
+    reblog_id = response.json()
+
+    # Create reblog without content
+    post = PostCreateReblog(reblog=reblog_id)
+    response = client.post("/post", json=post.model_dump(mode="json"), headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200
+    post_id = response.json()
+
+    # Check the reblog actually worked
+    response = client.get(f"/post/{post_id}")
+    assert response.status_code == 200
+    post_dict = response.json()
+    assert post_dict is not None
+    post = PostPublic.model_validate(post_dict)
+    assert str(post.reblog_of_id) == reblog_id

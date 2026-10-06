@@ -10,8 +10,8 @@ if TYPE_CHECKING:
     from .user import User
 
 class PostBase(SQLModel):
-    title: str = Field(max_length=64)
-    content: str
+    title: str | None = Field(max_length=64, default=None)
+    content: str | None = Field(default=None)
 
     def into_convert(self) -> "PostConvert":
         return PostConvert.model_validate(self)
@@ -24,11 +24,20 @@ class PostConvert(PostBase):
         )
         return create
 
-    def into_public(self, id: UUID, username: str, tags: list[str]) -> "PostPublic":
+    def into_create_reblog(self, tags: list[str], reblog: UUID) -> "PostCreateReblog":
+        create = PostCreateReblog(
+            tags=tags,
+            reblog=reblog,
+            **self.model_dump()
+        )
+        return create
+
+    def into_public(self, id: UUID, username: str, tags: list[str], reblog_of_id: UUID | None = None) -> "PostPublic":
         public = PostPublic(
             id=id, 
             username=username, 
             tags=tags, 
+            reblog_of_id=reblog_of_id,
             **self.model_dump()
         )
         return public
@@ -36,15 +45,24 @@ class PostConvert(PostBase):
     def into_table(self, user: "User") -> Post:
         table = Post(user=user, **self.model_dump())
         table.tags = []
+        table.reblog_of_id = None
         return table
 
 class PostCreate(PostBase):
+    title: str
+    content: str
     tags: list[str] = Field(default=[])
+    reblog: None = Field(default=None)
+
+class PostCreateReblog(PostBase):
+    tags: list[str] = Field(default=[])
+    reblog: UUID
 
 class PostPublic(PostBase):
     id: UUID
     username: str
     tags: list[str] = Field(default=[])
+    reblog_of_id: UUID | None = Field(default=None)
 
     @classmethod
     def from_table(cls, post_table: "Post") -> Self:
@@ -63,6 +81,9 @@ class Post(PostBase, table=True):
         back_populates="posts", 
         link_model=PostTagLink
     )
+
+    reblog_of_id: UUID | None = Field(default=None, foreign_key="post.id")
+    reblogs: list["Post"] = Relationship()
 
     def get_tags_as_str(self) -> list[str]:
         return list(map(lambda tag: tag.name, self.tags))

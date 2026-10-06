@@ -6,7 +6,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.security import OAuth2PasswordRequestForm
 from uuid import UUID
 
-from .models import create_db_and_tables, User, Post, TokenResponse, PostCreate, PostPublic, Tag, tags_from_strings, HTTPError
+from .models import create_db_and_tables, User, Post, TokenResponse, PostCreate, PostPublic, Tag, tags_from_strings, HTTPError, PostCreateReblog
 from .dependencies import get_engine, get_session
 from .auth import get_current_user, authenticate_user, generate_token, save_token_for_user
 
@@ -59,19 +59,26 @@ def get_post(id: UUID, session: SessionDependency) -> PostPublic:
     post_public = item.into_convert().into_public(
         id=item.id,
         username=item.username,
-        tags=tags
+        tags=tags,
+        reblog_of_id=item.reblog_of_id
     )
 
     return post_public
 
 
 @app.post("/post", response_model=UUID, responses=post_responses)
-def create_post(post_create: PostCreate, session: SessionDependency, user: UserDependency):
+def create_post(post_create: PostCreateReblog | PostCreate, session: SessionDependency, user: UserDependency):
     post = post_create.into_convert().into_table(user)
     tags = tags_from_strings(post_create.tags)
     post.add_tags(tags)
-
     session.add(post)
+
+    if reblog_of_id := post_create.reblog:
+        if reblog_of := Post.fetch_optional(session, reblog_of_id):
+            reblog_of.reblogs.append(post)
+        else:
+            raise HTTPException(400, "Post to be reblogged doesn't exist")
+
     session.commit()
     session.refresh(post)
     return post.id
