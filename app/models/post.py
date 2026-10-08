@@ -32,12 +32,12 @@ class PostConvert(PostBase):
         )
         return create
 
-    def into_public(self, id: UUID, username: str, tags: list[str], reblog_of_id: UUID | None = None) -> "PostPublic":
+    def into_public(self, id: UUID, username: str, tags: list[str], parent_id: UUID | None = None) -> "PostPublic":
         public = PostPublic(
             id=id, 
             username=username, 
             tags=tags, 
-            reblog_of_id=reblog_of_id,
+            parent_id=parent_id,
             **self.model_dump()
         )
         return public
@@ -45,7 +45,7 @@ class PostConvert(PostBase):
     def into_table(self, user: "User") -> Post:
         table = Post(user=user, **self.model_dump())
         table.tags = []
-        table.reblog_of_id = None
+        table.parent_id = None
         return table
 
 class PostCreate(PostBase):
@@ -62,7 +62,7 @@ class PostPublic(PostBase):
     id: UUID
     username: str
     tags: list[str] = Field(default=[])
-    reblog_of_id: UUID | None = Field(default=None)
+    parent_id: UUID | None = Field(default=None)
 
     @classmethod
     def from_table(cls, post_table: "Post") -> Self:
@@ -72,7 +72,7 @@ class PostPublic(PostBase):
 
         return cls.model_validate(post_dict)
 
-class Post(PostBase, table=True):
+class Post(PostBase, table=True, extra="allow"):
     id: UUID = Field(default_factory=uuid.uuid4, primary_key=True)
 
     username: str = Field(foreign_key="user.username")
@@ -82,8 +82,9 @@ class Post(PostBase, table=True):
         link_model=PostTagLink
     )
 
-    reblog_of_id: UUID | None = Field(default=None, foreign_key="post.id")
-    reblogs: list["Post"] = Relationship()
+    parent_id: UUID | None = Field(default=None, foreign_key="post.id")
+    parent: "Post" = Relationship(back_populates="children")
+    children: list["Post"] = Relationship()
 
     def get_tags_as_str(self) -> list[str]:
         return list(map(lambda tag: tag.name, self.tags))

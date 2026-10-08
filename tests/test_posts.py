@@ -195,7 +195,7 @@ def test_reblog_with_content(client: TestClient, test_user: UserCreate, example_
     post_dict = response.json()
     assert post_dict is not None
     post = PostPublic.model_validate(post_dict)
-    assert str(post.reblog_of_id) == reblog_id
+    assert str(post.parent_id) == reblog_id
 
 def test_reblog_without_content(client: TestClient, test_user: UserCreate, example_post: PostCreate):
     # Log in
@@ -219,4 +219,4 @@ def test_reblog_without_content(client: TestClient, test_user: UserCreate, examp
     post_dict = response.json()
     assert post_dict is not None
     post = PostPublic.model_validate(post_dict)
-    assert str(post.reblog_of_id) == reblog_id
+    assert str(post.parent_id) == reblog_id

@@ -60,7 +60,7 @@ def get_post(id: UUID, session: SessionDependency) -> PostPublic:
         id=item.id,
         username=item.username,
         tags=tags,
-        reblog_of_id=item.reblog_of_id
+        parent_id=item.parent_id
     )
 
     return post_public
@@ -73,9 +73,9 @@ def create_post(post_create: PostCreateReblog | PostCreate, session: SessionDepe
     post.add_tags(tags)
     session.add(post)
 
-    if reblog_of_id := post_create.reblog:
-        if reblog_of := Post.fetch_optional(session, reblog_of_id):
-            reblog_of.reblogs.append(post)
+    if parent_id := post_create.reblog:
+        if parent := Post.fetch_optional(session, parent_id):
+            parent.children.append(post)
         else:
             raise HTTPException(400, "Post to be reblogged doesn't exist")
 
