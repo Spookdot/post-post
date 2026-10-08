@@ -2,11 +2,11 @@ from sqlmodel import Session
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Body
 from fastapi.security import OAuth2PasswordRequestForm
 from uuid import UUID
 
-from .models import create_db_and_tables, User, Post, TokenResponse, PostCreate, PostPublic, Tag, tags_from_strings, HTTPError, PostCreateReblog
+from .models import create_db_and_tables, User, Post, TokenResponse, PostCreate, PostPublic, Tag, tags_from_strings, HTTPError, PostCreateReblog, post_create_examples, post_public_examples
 from .dependencies import get_engine, get_session
 from .auth import get_current_user, authenticate_user, generate_token, save_token_for_user
 
@@ -49,7 +49,18 @@ def login(
 
 
 # Post management
-@app.get("/post/{id}", response_model=PostPublic, responses=get_responses)
+@app.get(
+        "/post/{id}", 
+        response_model=PostPublic, 
+        responses={
+            200: {
+                "content": {
+                    "application/json": { "examples": post_public_examples() }
+                }
+            },
+            **get_responses
+        }
+)
 def get_post(id: UUID, session: SessionDependency) -> PostPublic:
     item = Post.fetch_optional(session, id)
     if not item:
@@ -67,7 +78,11 @@ def get_post(id: UUID, session: SessionDependency) -> PostPublic:
 
 
 @app.post("/post", response_model=UUID, responses=post_responses)
-def create_post(post_create: PostCreateReblog | PostCreate, session: SessionDependency, user: UserDependency):
+def create_post(
+        post_create: Annotated[PostCreateReblog | PostCreate, Body(openapi_examples=post_create_examples())], 
+        session: SessionDependency, 
+        user: UserDependency
+):
     post = post_create.into_convert().into_table(user)
     tags = tags_from_strings(post_create.tags)
     post.add_tags(tags)

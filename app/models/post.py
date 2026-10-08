@@ -1,3 +1,4 @@
+from fastapi.openapi.models import Example
 from sqlmodel import SQLModel, Session, Field, Relationship, select
 from typing import Self, TYPE_CHECKING
 from uuid import UUID
@@ -72,6 +73,20 @@ class PostPublic(PostBase):
 
         return cls.model_validate(post_dict)
 
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "id": "f453ab5e-1a16-40a6-8977-00595aff7ca3",
+                    "username": "NyaNya",
+                    "title": "I like cats",
+                    "content": "Reason 1 why I like cats...",
+                    "tags": ["cat", "cats", "kitten", "kittens"]
+                }    
+            ]
+        }
+    }
+
 class Post(PostBase, table=True, extra="allow"):
     id: UUID = Field(default_factory=uuid.uuid4, primary_key=True)
 
@@ -98,3 +113,112 @@ class Post(PostBase, table=True, extra="allow"):
 
     def into_public(self) -> PostPublic:
         return PostPublic.from_table(self)
+
+def post_create_examples() -> dict[str, Example]:
+    post_with_tags = PostCreate(
+        title="Example Post", 
+        content="This is an example post", 
+        tags=["example", "first post"]
+    )
+    post_without_tags = PostCreate(
+        title="Example Post",
+        content="This is an example post"
+    )
+    reblog_with_content = PostCreateReblog(
+        title="Example Post",
+        content="This is an example post",
+        tags=["example", "first post"],
+        reblog=UUID("f453ab5e-1a16-40a6-8977-00595aff7ca3"),
+    )
+    reblog_with_tags = PostCreateReblog(
+        tags=["I realled liked this post"],
+        reblog=UUID("f453ab5e-1a16-40a6-8977-00595aff7ca3")
+    )
+    reblog_without_content = PostCreateReblog(reblog=UUID("f453ab5e-1a16-40a6-8977-00595aff7ca3"))
+
+    return {
+        "post-with-tags": {
+            "summary": "A Post with Tags",
+            "value": post_with_tags.model_dump()
+        },
+        "post-without-tags": {
+            "summary": "A Post without Tags",
+            "value": post_without_tags.model_dump()
+        },
+        "reblog-with-content": {
+            "summary": "A Reblog with Content",
+            "value": reblog_with_content.model_dump()
+        },
+        "reblog-with-tags": {
+            "summary": "A Reblog with only Tags",
+            "value": reblog_with_tags.model_dump()
+        },
+        "reblog-without-content": {
+            "summary": "A Reblog without content",
+            "value": reblog_without_content.model_dump()
+        }
+    }
+
+def post_public_examples() -> dict[str, Example]:
+    post_id = UUID("2befcd2b-ee6c-461b-be4d-25b0e3ab7f7c")
+    username = "Exmplus"
+    title = "Example Post"
+    content = "This is an example post"
+    tags = ["example", "first post"]
+    parent_id = UUID("f453ab5e-1a16-40a6-8977-00595aff7ca3")
+
+    post_with_tags = PostPublic(
+        id=post_id,
+        username=username,
+        title=title, 
+        content=content, 
+        tags=tags
+    )
+    post_without_tags = PostPublic(
+        id=post_id,
+        username=username,
+        title=title, 
+        content=content, 
+    )
+    reblog_with_content = PostPublic(
+        id=post_id,
+        username=username,
+        title=title, 
+        content=content, 
+        tags=tags,
+        parent_id=parent_id,
+    )
+    reblog_with_tags = PostPublic(
+        id=post_id,
+        username=username,
+        tags=["I realled liked this post"],
+        parent_id=parent_id
+    )
+    reblog_without_content = PostPublic(
+        id=post_id,
+        username=username,
+        parent_id=parent_id
+    )
+
+    return {
+        "post-with-tags": {
+            "summary": "A Post with Tags",
+            "value": post_with_tags.model_dump()
+        },
+        "post-without-tags": {
+            "summary": "A Post without Tags",
+            "value": post_without_tags.model_dump()
+        },
+        "reblog-with-content": {
+            "summary": "A Reblog with Content",
+            "value": reblog_with_content.model_dump()
+        },
+        "reblog-with-tags": {
+            "summary": "A Reblog with only Tags",
+            "value": reblog_with_tags.model_dump()
+        },
+        "reblog-without-content": {
+            "summary": "A Reblog without content",
+            "value": reblog_without_content.model_dump()
+        }
+    }
